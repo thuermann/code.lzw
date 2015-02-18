@@ -3,7 +3,7 @@
  * see "A Technique for High Performance Data Compression",
  *     Terry A. Welch, IEEE Computer Vol 17, No 6 (June 1984), pp 8-19.
  *
- * $Id: lzw.c,v 1.3 2015/02/18 23:32:43 urs Exp $
+ * $Id: lzw.c,v 1.4 2015/02/18 23:32:53 urs Exp $
  */
 
 #include <stdio.h>
@@ -17,6 +17,7 @@
 
 static int search(int prefix, unsigned char c);
 static int insert(int prefix, unsigned char c);
+static void flush(void);
 static int write_code(int cd, unsigned char *buffer);
 
 typedef struct {
@@ -68,7 +69,8 @@ int code(int c, int *cd)
 
 	*cd = curr_code;
 
-	tmp = insert(curr_code, c);
+	if (tmp = insert(curr_code, c))
+		flush();
 	curr_code = c;
 
 	return 1 + tmp;
@@ -90,22 +92,26 @@ static int search(int prefix, unsigned char c)
 
 static int insert(int prefix, unsigned char c)
 {
+	if (c_next_free == TABSIZE)
+		return 1;
+
+	code_tab[c_next_free].last = c;
+	code_tab[c_next_free].first_child = NO_CHILD;
+	code_tab[c_next_free].next_child = code_tab[prefix].first_child;
+	code_tab[prefix].first_child = c_next_free;
+	c_next_free++;
+
+	return 0;
+}
+
+static void flush(void)
+{
 	int i;
 
-	if (c_next_free == TABSIZE) {
-		for (i = 0; i < 256; i++)
-			code_tab[i].first_child = NO_CHILD;
+	for (i = 0; i < 256; i++)
+		code_tab[i].first_child = NO_CHILD;
 
-		c_next_free = 256;
-		return 1;
-	} else {
-		code_tab[c_next_free].last = c;
-		code_tab[c_next_free].first_child = NO_CHILD;
-		code_tab[c_next_free].next_child = code_tab[prefix].first_child;
-		code_tab[prefix].first_child = c_next_free;
-		c_next_free++;
-		return 0;
-	}
+	c_next_free = 256;
 }
 
 void decode_init(void)
