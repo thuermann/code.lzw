@@ -3,7 +3,7 @@
  * see "A Technique for High Performance Data Compression",
  *     Terry A. Welch, IEEE Computer Vol 17, No 6 (June 1984), pp 8-19.
  *
- * $Id: lzw.c,v 1.6 2015/02/18 23:42:39 urs Exp $
+ * $Id: lzw.c,v 1.7 2015/02/18 23:43:14 urs Exp $
  */
 
 #include <stdlib.h>
@@ -78,36 +78,37 @@ void encode_free(struct encoder *e)
 
 int encode(struct encoder *e, int c, int *cd)
 {
-	int tmp;
+	int code, flag;
 
 	if (c == EOF) {
 		*cd = e->curr_code;
 		return 1;
 	}
 
-	if ((tmp = search(e, e->curr_code, c)) >= 0) {
-		e->curr_code = tmp;
+	if ((code = search(e, e->curr_code, c)) >= 0) {
+		e->curr_code = code;
 		return 0;
 	}
 
 	*cd = e->curr_code;
 
-	if (tmp = insert(e, e->curr_code, c))
+	if (flag = insert(e, e->curr_code, c))
 		flush(e);
 	e->curr_code = c;
 
-	return 1 + tmp;
+	return 1 + flag;
 }
 
 static int search(const struct encoder *e, int prefix, unsigned char c)
 {
+	C_STRING *tab = e->tab;
 	int cd;
 
 	if (prefix < 0)
 		return c;
 
-	for (cd = e->tab[prefix].first_child; cd >= 0; cd = e->tab[cd].next_child)
-		if (e->tab[cd].last == c)
+	for (cd = tab[prefix].first_child; cd >= 0; cd = tab[cd].next_child)
+		if (tab[cd].last == c)
 			break;
 
 	return cd;
@@ -115,14 +116,17 @@ static int search(const struct encoder *e, int prefix, unsigned char c)
 
 static int insert(struct encoder *e, int prefix, unsigned char c)
 {
+	C_STRING *tab = e->tab;
+	int new;
+
 	if (e->next_free == e->size)
 		return 1;
 
-	e->tab[e->next_free].last = c;
-	e->tab[e->next_free].first_child = NO_CHILD;
-	e->tab[e->next_free].next_child = e->tab[prefix].first_child;
-	e->tab[prefix].first_child = e->next_free;
-	e->next_free++;
+	new = e->next_free++;
+	tab[new].last        = c;
+	tab[new].first_child = NO_CHILD;
+	tab[new].next_child  = tab[prefix].first_child;
+	tab[prefix].first_child = new;
 
 	return 0;
 }
@@ -174,6 +178,7 @@ void decode_free(struct decoder *d)
 
 int decode(struct decoder *d, int cd, unsigned char **cp)
 {
+	D_STRING *tab = d->tab;
 	unsigned char *end;
 	int len;
 
@@ -181,10 +186,10 @@ int decode(struct decoder *d, int cd, unsigned char **cp)
 		if (d->next_free == d->size)
 			d->next_free = 256;
 		else {
-			d->tab[d->next_free].prefix = d->last_code;
-			d->tab[d->next_free].first = d->tab[d->last_code].first;
-			d->tab[d->next_free].last = d->tab[cd].first;
-			d->next_free++;
+			int new = d->next_free++;
+			tab[new].prefix = d->last_code;
+			tab[new].first  = tab[d->last_code].first;
+			tab[new].last   = tab[cd].first;
 		}
 	}
 
