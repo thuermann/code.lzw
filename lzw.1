@@ -1,0 +1,36 @@
+.\"
+.\" $Id: lzw.1,v 1.1 2015/02/18 23:34:44 urs Exp $
+.\"
+.TH LZW 1 "Feb 19, 2015" "" "User Commands"
+.SH NAME
+lzw \- compress and uncompress using Lempel-Ziv-Welch (LZW)
+.SH SYNOPSIS
+.B lzw
+.RB [ \-dv ]
+.I in out
+.SH DESCRIPTION
+.B lzw
+is a simple file compressesor and uncompressesor using the Lempel-Ziv-Welch
+(LZW) algorithm as described in "A Technique for High Performance Data
+Compression", Terry A. Welch, IEEE Computer Vol 17, No 6 (June 1984), pp 8-19.
+.B lzw
+reads from input file
+.I in
+and writes the compressed or uncompressed data to
+.I out
+.
+.SH NOTES
+The Lempel-Ziv-Welch (LZW) algorithm was covered by U.S. Patent 4,814,746,
+filed on June 1, 1983, and U.S. Patent 4,558,302, filed on June 20, 1983.
+This patent expired on June 20, 2003.
+.SH OPTIONS
+.TP
+.B \-d
+Decompress input file.  The default is to compress.
+.TP
+.B \-v
+Print some debug information about the compress or decompress process.
+.SH BUGS
+Hopefully none.
+.SH AUTHOR
+Urs Thuermann <urs@isnogud.escape.de>

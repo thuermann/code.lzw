@@ -1,0 +1,7 @@
+This is a very simple file compressor und decompressor using the
+Lempel-Zev-Welch (LZW) algorithm.  Compression rates are very similar
+to those of the Unix program compress which uses the Lempel-Zev
+algorithm.
+
+This code was written for purely experimental purposes and to provide
+very simple and clean code to show how compression works.
