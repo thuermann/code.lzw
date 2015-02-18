@@ -1,5 +1,5 @@
 /*
- * $Id: main.c,v 1.5 2015/02/18 23:42:39 urs Exp $
+ * $Id: main.c,v 1.6 2015/02/18 23:43:56 urs Exp $
  */
 
 #include <stdlib.h>
@@ -180,51 +180,58 @@ static int decompress(const char *in, const char *out)
 	return 0;
 }
 
-typedef unsigned int WORD;
-#define WSIZE (8 * sizeof(WORD))
-
-static void send(int cd, int bit_width, FILE *fp)
+static void send(int code, int len, FILE *fp)
 {
-	static int bits_free = WSIZE;
-	static WORD buf = 0;
+	static unsigned char bit_buf = 0;
+	static int bits_free = 8;
 
 	/* call send() with cd == -1 to flush the buffer */
 
-	if (cd < 0) {
-		cd = 0;
-		bit_width = bits_free;
+	if (code < 0) {
+		code = 0;
+		len = bits_free != 8 ? bits_free : 0;
 	}
 
 	if (verbose)
-		printf(" (%.4x,%d)", cd, bit_width);
+		printf(" (%.4x,%d)", code, len);
 
-	if (bits_free > bit_width) {
-		buf |= cd << (bits_free - bit_width);
-		bits_free -= bit_width;
-	} else {
-		buf |= cd >> (bit_width - bits_free);
-		fwrite(&buf, sizeof(buf), 1, fp);
-		buf = bits_free == bit_width ?
-			0 : cd << (WSIZE - (bit_width - bits_free));
-		bits_free = WSIZE - (bit_width - bits_free);
+	while (len > 0) {
+		if (bits_free > len) {
+			bit_buf |= code << (bits_free - len);
+			bits_free -= len;
+			len = 0;
+		} else {
+			bit_buf |= code >> (len - bits_free);
+			len -= bits_free;
+			putc(bit_buf, fp);
+			bit_buf = 0;
+			bits_free = 8;
+		}
 	}
 }
 
-static int receive(int bit_width, FILE *fp)
+static int receive(int len, FILE *fp)
 {
+	static unsigned char bit_buf;
 	static int bits_used = 0;
-	static WORD buf;
-	int cd;
+	int code = 0;
 
-	if (bits_used >= bit_width) {
-		cd = buf >> (bits_used - bit_width);
-		bits_used -= bit_width;
-	} else {
-		cd = buf << (bit_width - bits_used);
-		if (fread(&buf, sizeof(buf), 1, fp) != 1)
-			return -1;
-		cd |= buf >> (WSIZE - (bit_width - bits_used));
-		bits_used = WSIZE - (bit_width - bits_used);
+	while (len > 0) {
+		if (bits_used >= len) {
+			code |= bit_buf >> (bits_used - len);
+			bits_used -= len;
+			len = 0;
+		} else {
+			int c;
+			code |= bit_buf << (len - bits_used);
+			len -= bits_used;
+			if ((c = getc(fp)) == EOF)
+				return -1;
+			bit_buf = c;
+			bits_used = 8;
+		}
 	}
-	return cd & ((1 << bit_width) - 1);
+	bit_buf &= (1 << bits_used) - 1;
+
+	return code;
 }
