@@ -1,5 +1,5 @@
 /*
- * $Id: main.c,v 1.3 2015/02/18 23:34:34 urs Exp $
+ * $Id: main.c,v 1.4 2015/02/18 23:40:27 urs Exp $
  */
 
 #include <stdlib.h>
@@ -59,6 +59,7 @@ int main(int argc, char **argv)
 
 static int compress(const char *in, const char *out)
 {
+	struct encoder *e;
 	int flag;
 	int c, cd;
 	int bit_width, next_width;
@@ -70,7 +71,7 @@ static int compress(const char *in, const char *out)
 	if (!(outfile = fopen(out, "wb")))
 		return -1;
 
-	code_init();
+	e = encode_init();
 	bit_width = 8;
 	next_width = 256;
 	do {
@@ -90,7 +91,7 @@ static int compress(const char *in, const char *out)
 			else
 				printf("0x%.2x: ", c);
 		}
-		if (flag = code(c, &cd)) {
+		if (flag = encode(e, c, &cd)) {
 			cd += 2;
 			while (cd >= next_width) {
 				send(INC_WIDTH, bit_width, outfile);
@@ -116,6 +117,8 @@ static int compress(const char *in, const char *out)
 		printf("FLSH: ");
 	send(-1, 0, outfile);
 
+	encode_free(e);
+
 	if (verbose)
 		printf("\n%ld bytes -> %ld = 8 * %ld + %ld bits\n",
 		       nbytes, nbits, nbits / 8, nbits % 8);
@@ -128,6 +131,7 @@ static int compress(const char *in, const char *out)
 
 static int decompress(const char *in, const char *out)
 {
+	struct decoder *d;
 	int cd;
 	int bit_width, len;
 	unsigned char *buf;
@@ -138,7 +142,7 @@ static int decompress(const char *in, const char *out)
 	if (!(outfile = fopen(out, "wb")))
 		return -1;
 
-	decode_init();
+	d = decode_init();
 	bit_width = 8;
 	do {
 		if ((cd = receive(bit_width, infile)) < 0)
@@ -155,7 +159,7 @@ static int decompress(const char *in, const char *out)
 			bit_width++;
 		} else {
 			cd -= 2;
-			len = decode(cd, &buf);
+			len = decode(d, cd, &buf);
 			fwrite(buf, 1, len, outfile);
 			if (verbose) {
 				int i;
@@ -165,6 +169,8 @@ static int decompress(const char *in, const char *out)
 			}
 		}
 	} while (bit_width > 0);
+
+	decode_free(d);
 
 	fclose(infile);
 	fclose(outfile);

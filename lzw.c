@@ -3,22 +3,19 @@
  * see "A Technique for High Performance Data Compression",
  *     Terry A. Welch, IEEE Computer Vol 17, No 6 (June 1984), pp 8-19.
  *
- * $Id: lzw.c,v 1.4 2015/02/18 23:32:53 urs Exp $
+ * $Id: lzw.c,v 1.5 2015/02/18 23:40:27 urs Exp $
  */
 
+#include <stdlib.h>
 #include <stdio.h>
 
 #include "lzw.h"
 
 #define TABSIZE (8192 - 2)
+#define BSIZE   (TABSIZE - 256 + 1)
 
 #define EMPTY    -1
 #define NO_CHILD -1
-
-static int search(int prefix, unsigned char c);
-static int insert(int prefix, unsigned char c);
-static void flush(void);
-static int write_code(int cd, unsigned char *buffer);
 
 typedef struct {
 	int first_child;
@@ -26,139 +23,168 @@ typedef struct {
 	unsigned char last;
 } C_STRING;
 
+struct encoder {
+	C_STRING tab[TABSIZE];
+	int curr_code;
+	int next_free;
+};
+
 typedef struct {
 	int prefix;
 	unsigned char last;
 	unsigned char first;
 } D_STRING;
 
-static C_STRING code_tab[TABSIZE];
-static D_STRING decode_tab[TABSIZE];
+struct decoder {
+	D_STRING tab[TABSIZE];
+	int next_free;
+	int last_code;
+	unsigned char buffer[BSIZE];
+};
 
-static int c_next_free;
-static int d_next_free;
-static int curr_code;
-static int last_code;
+static int search(const struct encoder *e, int prefix, unsigned char c);
+static int insert(struct encoder *e, int prefix, unsigned char c);
+static void flush(struct encoder *e);
+static int write_code(const struct decoder *d, int cd, unsigned char *buffer);
 
-void code_init(void)
+struct encoder *encode_init(void)
 {
+	struct encoder *e;
 	int i;
 
+	if (!(e = malloc(sizeof(*e))))
+		return NULL;
+
 	for (i = 0; i < 256; i++) {
-		code_tab[i].last = i;
-		code_tab[i].first_child = NO_CHILD;
-		code_tab[i].next_child  = NO_CHILD;
+		e->tab[i].last = i;
+		e->tab[i].first_child = NO_CHILD;
+		e->tab[i].next_child  = NO_CHILD;
 	}
-	c_next_free = 256;
-	curr_code = EMPTY;
+	e->next_free = 256;
+	e->curr_code = EMPTY;
+
+	return e;
 }
 
-int code(int c, int *cd)
+void encode_free(struct encoder *e)
+{
+	free(e);
+}
+
+int encode(struct encoder *e, int c, int *cd)
 {
 	int tmp;
 
 	if (c == EOF) {
-		*cd = curr_code;
+		*cd = e->curr_code;
 		return 1;
 	}
 
-	if ((tmp = search(curr_code, c)) >= 0) {
-		curr_code = tmp;
+	if ((tmp = search(e, e->curr_code, c)) >= 0) {
+		e->curr_code = tmp;
 		return 0;
 	}
 
-	*cd = curr_code;
+	*cd = e->curr_code;
 
-	if (tmp = insert(curr_code, c))
-		flush();
-	curr_code = c;
+	if (tmp = insert(e, e->curr_code, c))
+		flush(e);
+	e->curr_code = c;
 
 	return 1 + tmp;
 }
 
-static int search(int prefix, unsigned char c)
+static int search(const struct encoder *e, int prefix, unsigned char c)
 {
 	int cd;
 
 	if (prefix < 0)
 		return c;
 
-	for (cd = code_tab[prefix].first_child; cd >= 0; cd = code_tab[cd].next_child)
-		if (code_tab[cd].last == c)
+	for (cd = e->tab[prefix].first_child; cd >= 0; cd = e->tab[cd].next_child)
+		if (e->tab[cd].last == c)
 			break;
 
 	return cd;
 }
 
-static int insert(int prefix, unsigned char c)
+static int insert(struct encoder *e, int prefix, unsigned char c)
 {
-	if (c_next_free == TABSIZE)
+	if (e->next_free == TABSIZE)
 		return 1;
 
-	code_tab[c_next_free].last = c;
-	code_tab[c_next_free].first_child = NO_CHILD;
-	code_tab[c_next_free].next_child = code_tab[prefix].first_child;
-	code_tab[prefix].first_child = c_next_free;
-	c_next_free++;
+	e->tab[e->next_free].last = c;
+	e->tab[e->next_free].first_child = NO_CHILD;
+	e->tab[e->next_free].next_child = e->tab[prefix].first_child;
+	e->tab[prefix].first_child = e->next_free;
+	e->next_free++;
 
 	return 0;
 }
 
-static void flush(void)
+static void flush(struct encoder *e)
 {
 	int i;
 
 	for (i = 0; i < 256; i++)
-		code_tab[i].first_child = NO_CHILD;
+		e->tab[i].first_child = NO_CHILD;
 
-	c_next_free = 256;
+	e->next_free = 256;
 }
 
-void decode_init(void)
+struct decoder *decode_init(void)
 {
+	struct decoder *d;
 	int i;
 
+	if (!(d = malloc(sizeof(*d))))
+		return NULL;
+
 	for (i = 0; i < 256; i++) {
-		decode_tab[i].prefix = EMPTY;
-		decode_tab[i].first  = decode_tab[i].last = i;
+		d->tab[i].prefix = EMPTY;
+		d->tab[i].first  = d->tab[i].last = i;
 	}
-	d_next_free = 256;
-	last_code = EMPTY;
+	d->next_free = 256;
+	d->last_code = EMPTY;
+
+	return d;
 }
 
-int decode(int cd, unsigned char **cp)
+void decode_free(struct decoder *d)
 {
-#define BSIZE (TABSIZE-255)
+	free(d);
+}
 
+int decode(struct decoder *d, int cd, unsigned char **cp)
+{
 	int len;
-	static unsigned char buffer[BSIZE];
 
-	if (last_code != EMPTY) {
-		if (d_next_free == TABSIZE)
-			d_next_free = 256;
+	if (d->last_code != EMPTY) {
+		if (d->next_free == TABSIZE)
+			d->next_free = 256;
 		else {
-			decode_tab[d_next_free].prefix = last_code;
-			decode_tab[d_next_free].first = decode_tab[last_code].first;
-			decode_tab[d_next_free].last = decode_tab[cd].first;
-			d_next_free++;
+			d->tab[d->next_free].prefix = d->last_code;
+			d->tab[d->next_free].first = d->tab[d->last_code].first;
+			d->tab[d->next_free].last = d->tab[cd].first;
+			d->next_free++;
 		}
 	}
 
-	len = write_code(cd, buffer + BSIZE);
-	*cp = buffer + BSIZE - len;
-	last_code = cd;
+	len = write_code(d, cd, d->buffer + BSIZE);
+	*cp = d->buffer + BSIZE - len;
+	d->last_code = cd;
 
 	return len;
 }
 
-static int write_code(int cd, unsigned char *buffer)
+static int write_code(const struct decoder *d, int cd, unsigned char *buffer)
 {
 	int len = 0;
 
 	while (cd >= 256) {
-		*--buffer = decode_tab[cd].last;
+		*--buffer = d->tab[cd].last;
 		len++;
-		cd = decode_tab[cd].prefix;
+		cd = d->tab[cd].prefix;
 	}
 	*--buffer = cd;
 	len++;
