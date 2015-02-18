@@ -1,12 +1,19 @@
 /*
- * $Id: main.c,v 1.2 2015/02/18 23:32:43 urs Exp $
+ * $Id: main.c,v 1.3 2015/02/18 23:34:34 urs Exp $
  */
 
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include <unistd.h>
 
 #include "lzw.h"
+
+static void usage(const char *name)
+{
+	fprintf(stderr, "Usage: %s [-dv] in out\n", name);
+}
 
 #define DEC_WIDTH 0
 #define INC_WIDTH 1
@@ -16,20 +23,36 @@ static int decompress(const char *in, const char *out);
 static void send(int cd, int bit_width, FILE *fp);
 static int receive(int bit_width, FILE *fp);
 
-static int verbose = 1;
+static int verbose = 0;
 
 int main(int argc, char **argv)
 {
-	int decompress_flag = 0;
+	int decompress_flag = 0, errflag = 0;
+	int opt;
 
-	if (argc > 1 && strcmp(argv[1], "-d") == 0) {
-		argc--, argv++;
-		decompress_flag = 1;
+	while ((opt = getopt(argc, argv, "dv")) != -1) {
+		switch (opt) {
+		case 'd':
+			decompress_flag = 1;
+			break;
+		case 'v':
+			verbose = 1;
+			break;
+		default:
+			errflag = 1;
+			break;
+		}
 	}
+
+	if (errflag || argc - optind != 2) {
+		usage(argv[0]);
+		exit(1);
+	}
+
 	if (decompress_flag)
-		decompress(argv[1], argv[2]);
+		decompress(argv[optind], argv[optind + 1]);
 	else
-		compress(argv[1], argv[2]);
+		compress(argv[optind], argv[optind + 1]);
 
 	return 0;
 }
