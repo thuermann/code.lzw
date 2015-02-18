@@ -3,16 +3,13 @@
  * see "A Technique for High Performance Data Compression",
  *     Terry A. Welch, IEEE Computer Vol 17, No 6 (June 1984), pp 8-19.
  *
- * $Id: lzw.c,v 1.5 2015/02/18 23:40:27 urs Exp $
+ * $Id: lzw.c,v 1.6 2015/02/18 23:42:39 urs Exp $
  */
 
 #include <stdlib.h>
 #include <stdio.h>
 
 #include "lzw.h"
-
-#define TABSIZE (8192 - 2)
-#define BSIZE   (TABSIZE - 256 + 1)
 
 #define EMPTY    -1
 #define NO_CHILD -1
@@ -24,7 +21,8 @@ typedef struct {
 } C_STRING;
 
 struct encoder {
-	C_STRING tab[TABSIZE];
+	int size;
+	C_STRING *tab;
 	int curr_code;
 	int next_free;
 };
@@ -36,10 +34,11 @@ typedef struct {
 } D_STRING;
 
 struct decoder {
-	D_STRING tab[TABSIZE];
+	int size;
+	D_STRING *tab;
 	int next_free;
 	int last_code;
-	unsigned char buffer[BSIZE];
+	unsigned char *buffer;
 };
 
 static int search(const struct encoder *e, int prefix, unsigned char c);
@@ -47,13 +46,18 @@ static int insert(struct encoder *e, int prefix, unsigned char c);
 static void flush(struct encoder *e);
 static int write_code(const struct decoder *d, int cd, unsigned char *buffer);
 
-struct encoder *encode_init(void)
+struct encoder *encode_init(int tabsize)
 {
 	struct encoder *e;
 	int i;
 
 	if (!(e = malloc(sizeof(*e))))
 		return NULL;
+	if (!(e->tab = malloc(tabsize * sizeof(e->tab[0])))) {
+		free(e);
+		return NULL;
+	}
+	e->size = tabsize;
 
 	for (i = 0; i < 256; i++) {
 		e->tab[i].last = i;
@@ -68,6 +72,7 @@ struct encoder *encode_init(void)
 
 void encode_free(struct encoder *e)
 {
+	free(e->tab);
 	free(e);
 }
 
@@ -110,7 +115,7 @@ static int search(const struct encoder *e, int prefix, unsigned char c)
 
 static int insert(struct encoder *e, int prefix, unsigned char c)
 {
-	if (e->next_free == TABSIZE)
+	if (e->next_free == e->size)
 		return 1;
 
 	e->tab[e->next_free].last = c;
@@ -132,13 +137,23 @@ static void flush(struct encoder *e)
 	e->next_free = 256;
 }
 
-struct decoder *decode_init(void)
+struct decoder *decode_init(int tabsize)
 {
 	struct decoder *d;
 	int i;
 
 	if (!(d = malloc(sizeof(*d))))
 		return NULL;
+	if (!(d->tab = malloc(tabsize * sizeof(d->tab[0])))) {
+		free(d);
+		return NULL;
+	}
+	if (!(d->buffer = malloc(tabsize - 256 + 1))) {
+		free(d->tab);
+		free(d);
+		return NULL;
+	}
+	d->size = tabsize;
 
 	for (i = 0; i < 256; i++) {
 		d->tab[i].prefix = EMPTY;
@@ -152,15 +167,18 @@ struct decoder *decode_init(void)
 
 void decode_free(struct decoder *d)
 {
+	free(d->buffer);
+	free(d->tab);
 	free(d);
 }
 
 int decode(struct decoder *d, int cd, unsigned char **cp)
 {
+	unsigned char *end;
 	int len;
 
 	if (d->last_code != EMPTY) {
-		if (d->next_free == TABSIZE)
+		if (d->next_free == d->size)
 			d->next_free = 256;
 		else {
 			d->tab[d->next_free].prefix = d->last_code;
@@ -170,8 +188,9 @@ int decode(struct decoder *d, int cd, unsigned char **cp)
 		}
 	}
 
-	len = write_code(d, cd, d->buffer + BSIZE);
-	*cp = d->buffer + BSIZE - len;
+	end = d->buffer + d->size - 256 + 1;
+	len = write_code(d, cd, end);
+	*cp = end - len;
 	d->last_code = cd;
 
 	return len;

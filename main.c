@@ -1,5 +1,5 @@
 /*
- * $Id: main.c,v 1.4 2015/02/18 23:40:27 urs Exp $
+ * $Id: main.c,v 1.5 2015/02/18 23:42:39 urs Exp $
  */
 
 #include <stdlib.h>
@@ -14,6 +14,8 @@ static void usage(const char *name)
 {
 	fprintf(stderr, "Usage: %s [-dv] in out\n", name);
 }
+
+#define TABSIZE (8192 - 2)
 
 #define DEC_WIDTH 0
 #define INC_WIDTH 1
@@ -71,7 +73,7 @@ static int compress(const char *in, const char *out)
 	if (!(outfile = fopen(out, "wb")))
 		return -1;
 
-	e = encode_init();
+	e = encode_init(TABSIZE);
 	bit_width = 8;
 	next_width = 256;
 	do {
@@ -142,7 +144,7 @@ static int decompress(const char *in, const char *out)
 	if (!(outfile = fopen(out, "wb")))
 		return -1;
 
-	d = decode_init();
+	d = decode_init(TABSIZE);
 	bit_width = 8;
 	do {
 		if ((cd = receive(bit_width, infile)) < 0)
