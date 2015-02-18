@@ -1,5 +1,5 @@
 /*
- * $Id: main.c,v 1.6 2015/02/18 23:43:56 urs Exp $
+ * $Id: main.c,v 1.7 2015/02/18 23:45:17 urs Exp $
  */
 
 #include <stdlib.h>
@@ -12,7 +12,7 @@
 
 static void usage(const char *name)
 {
-	fprintf(stderr, "Usage: %s [-dv] in out\n", name);
+	fprintf(stderr, "Usage: %s [-dv]\n", name);
 }
 
 #define TABSIZE (8192 - 2)
@@ -20,8 +20,8 @@ static void usage(const char *name)
 #define DEC_WIDTH 0
 #define INC_WIDTH 1
 
-static int compress(const char *in, const char *out);
-static int decompress(const char *in, const char *out);
+static int compress(FILE *infile, FILE *outfile);
+static int decompress(FILE *infile, FILE *outfile);
 static void send(int cd, int bit_width, FILE *fp);
 static int receive(int bit_width, FILE *fp);
 
@@ -46,32 +46,26 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (errflag || argc - optind != 2) {
+	if (errflag || optind != argc) {
 		usage(argv[0]);
 		exit(1);
 	}
 
 	if (decompress_flag)
-		decompress(argv[optind], argv[optind + 1]);
+		decompress(stdin, stdout);
 	else
-		compress(argv[optind], argv[optind + 1]);
+		compress(stdin, stdout);
 
 	return 0;
 }
 
-static int compress(const char *in, const char *out)
+static int compress(FILE *infile, FILE *outfile)
 {
 	struct encoder *e;
 	int flag;
 	int c, cd;
 	int bit_width, next_width;
 	long nbits = 0, nbytes = 0;
-	FILE *infile, *outfile;
-
-	if (!(infile = fopen(in, "rb")))
-		return -1;
-	if (!(outfile = fopen(out, "wb")))
-		return -1;
 
 	e = encode_init(TABSIZE);
 	bit_width = 8;
@@ -81,17 +75,17 @@ static int compress(const char *in, const char *out)
 		nbytes++;
 		if (verbose) {
 			if (c == EOF)
-				printf("EOF : ");
+				fprintf(stderr, "EOF : ");
 			else if (isprint(c))
-				printf("'%c' : ", c);
+				fprintf(stderr, "'%c' : ", c);
 			else if (c == '\n')
-				printf("'\\n': ");
+				fprintf(stderr, "'\\n': ");
 			else if (c == '\r')
-				printf("'\\r': ");
+				fprintf(stderr, "'\\r': ");
 			else if (c == '\t')
-				printf("'\\t': ");
+				fprintf(stderr, "'\\t': ");
 			else
-				printf("0x%.2x: ", c);
+				fprintf(stderr, "0x%.2x: ", c);
 		}
 		if (flag = encode(e, c, &cd)) {
 			cd += 2;
@@ -112,37 +106,28 @@ static int compress(const char *in, const char *out)
 				}
 		}
 		if (verbose)
-			printf("\n");
+			putc('\n', stderr);
 	} while (c != EOF);
 	nbytes--;
 	if (verbose)
-		printf("FLSH: ");
+		fprintf(stderr, "FLSH: ");
 	send(-1, 0, outfile);
 
 	encode_free(e);
 
 	if (verbose)
-		printf("\n%ld bytes -> %ld = 8 * %ld + %ld bits\n",
-		       nbytes, nbits, nbits / 8, nbits % 8);
-
-	fclose(infile);
-	fclose(outfile);
+		fprintf(stderr, "\n%ld bytes -> %ld = 8 * %ld + %ld bits\n",
+			nbytes, nbits, nbits / 8, nbits % 8);
 
 	return 0;
 }
 
-static int decompress(const char *in, const char *out)
+static int decompress(FILE *infile, FILE *outfile)
 {
 	struct decoder *d;
 	int cd;
 	int bit_width, len;
 	unsigned char *buf;
-	FILE *infile, *outfile;
-
-	if (!(infile = fopen(in, "rb")))
-		return -1;
-	if (!(outfile = fopen(out, "wb")))
-		return -1;
 
 	d = decode_init(TABSIZE);
 	bit_width = 8;
@@ -150,14 +135,14 @@ static int decompress(const char *in, const char *out)
 		if ((cd = receive(bit_width, infile)) < 0)
 			break;
 		if (verbose)
-			printf("(%.4x,%d):\t", cd, bit_width);
+			fprintf(stderr, "(%.4x,%d):\t", cd, bit_width);
 		if (cd == DEC_WIDTH) {
 			if (verbose)
-				printf("DEC\n");
+				fprintf(stderr, "DEC\n");
 			bit_width--;
 		} else if (cd == INC_WIDTH) {
 			if (verbose)
-				printf("INC\n");
+				fprintf(stderr, "INC\n");
 			bit_width++;
 		} else {
 			cd -= 2;
@@ -166,16 +151,13 @@ static int decompress(const char *in, const char *out)
 			if (verbose) {
 				int i;
 				for (i = 0; i < len; i++)
-					printf(" %.2x", buf[i]);
-				putchar('\n');
+					fprintf(stderr, " %.2x", buf[i]);
+				putc('\n', stderr);
 			}
 		}
 	} while (bit_width > 0);
 
 	decode_free(d);
-
-	fclose(infile);
-	fclose(outfile);
 
 	return 0;
 }
@@ -193,7 +175,7 @@ static void send(int code, int len, FILE *fp)
 	}
 
 	if (verbose)
-		printf(" (%.4x,%d)", code, len);
+		fprintf(stderr, " (%.4x,%d)", code, len);
 
 	while (len > 0) {
 		if (bits_free > len) {
